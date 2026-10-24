@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 300" width="920" height="300">
+  <!--
+    ratchat — wordmark lockup: mark + monospace name.
+    "rat" in muted teal, "chat" in off-white.
+  -->
+  <defs>
+    <g id="tooth" transform="translate(256 240)">
+      <path d="M141 -26 L178 -13 L178 13 L141 26 Z" fill="#33415e"/>
+    </g>
+    <mask id="keyhole-cut">
+      <rect x="0" y="0" width="512" height="512" fill="#fff"/>
+      <circle cx="256" cy="220" r="30" fill="#000"/>
+      <path d="M247 242 L265 242 L274 296 L238 296 Z" fill="#000"/>
+    </mask>
+  </defs>
+
+  <!-- background plate -->
+  <rect width="920" height="300" rx="48" fill="#0e1524"/>
+
+  <!-- mark, scaled to fit the left side -->
+  <g transform="translate(28 28) scale(0.48)">
+    <circle cx="256" cy="240" r="146" fill="#1a2740"/>
+    <use href="#tooth"/>
+    <use href="#tooth" transform="rotate(22.5 256 240)"/>
+    <use href="#tooth" transform="rotate(45 256 240)"/>
+    <use href="#tooth" transform="rotate(67.5 256 240)"/>
+    <use href="#tooth" transform="rotate(90 256 240)"/>
+    <use href="#tooth" transform="rotate(112.5 256 240)"/>
+    <use href="#tooth" transform="rotate(135 256 240)"/>
+    <use href="#tooth" transform="rotate(157.5 256 240)"/>
+    <use href="#tooth" transform="rotate(180 256 240)"/>
+    <use href="#tooth" transform="rotate(202.5 256 240)"/>
+    <use href="#tooth" transform="rotate(225 256 240)"/>
+    <use href="#tooth" transform="rotate(247.5 256 240)"/>
+    <use href="#tooth" transform="rotate(270 256 240)"/>
+    <use href="#tooth" transform="rotate(292.5 256 240)"/>
+    <use href="#tooth" transform="rotate(315 256 240)"/>
+    <use href="#tooth" transform="rotate(337.5 256 240)"/>
+    <path d="M218 362 L112 448 L156 336 Z" fill="#1a2740"/>
+    <circle cx="256" cy="220" r="30" fill="#3a8f84"/>
+    <path d="M247 242 L265 242 L274 296 L238 296 Z" fill="#3a8f84"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="312" y="182"
+        font-family="'JetBrains Mono','Fira Code','SF Mono',Consolas,monospace"
+        font-size="104" font-weight="600" letter-spacing="2">
+    <tspan fill="#3a8f84">rat</tspan><tspan fill="#dfe6f0">chat</tspan>
+  </text>
+</svg>

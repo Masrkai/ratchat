@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.svg" width="160" alt="ratchat logo: a speech bubble rimmed with uniform gear teeth around a keyhole center"/>
+</p>
+
 # ratchat
 
 > Double Ratchet + chat. End-to-end encrypted messaging in LuaJIT, over a blind relay.
