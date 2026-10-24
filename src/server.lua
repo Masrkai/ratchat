@@ -13,7 +13,17 @@
 
 local socket = require("socket")
 local json = require("cjson")
+local ffi = require("ffi")
 local plugin_manager = require("src.plugin")
+
+ffi.cdef[[
+    typedef void (*sighandler_t)(int);
+    sighandler_t signal(int signum, sighandler_t handler);
+]]
+
+local SIGINT = 2
+local SIG_DFL = 0
+local SIG_IGN = 1
 
 local ChatServer = {}
 ChatServer.__index = ChatServer
@@ -101,6 +111,17 @@ function ChatServer:online_count()
 end
 
 function ChatServer:start()
+    -- Ensure SIGINT can always stop us. If launched with SIGINT ignored (e.g.
+    -- background jobs inheriting SIG_IGN), LuaJIT skips its interrupt handler,
+    -- leaving the process un-killable via Ctrl+C/kill -INT. Reset to SIG_DFL
+    -- when SIG_IGN is detected so the OS terminates the process and frees the port.
+    pcall(function()
+        local prev = ffi.C.signal(SIGINT, ffi.cast("sighandler_t", SIG_DFL))
+        if tonumber(ffi.cast("intptr_t", prev)) ~= SIG_IGN then
+            ffi.C.signal(SIGINT, prev) -- restore LuaJIT's graceful-shutdown handler
+        end
+    end)
+
     -- Explicit socket creation so SO_REUSEADDR can be set before bind
     -- (allows immediate restart after shutdown without TIME_WAIT errors).
     local server = socket.tcp()
