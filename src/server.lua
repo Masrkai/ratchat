@@ -6,8 +6,10 @@
 --   * maintains a global room: join/leave notices + roster broadcasts
 --
 -- Wire protocol: newline-terminated JSON frames over TCP.
---   C->S: register | prekey_request | message | global | bye
---   S->C: registered | prekey_bundle | message | system | roster | error
+--   C->S: register | prekey_request | message | global | ack | bye
+--   S->C: registered | prekey_bundle | message | system | roster | receipt | error
+-- (ack is relayed to the original sender as a receipt: delivery-tick
+-- metadata only — nonce + usernames, never message content.)
 
 local socket = require("socket")
 local json = require("cjson")
@@ -217,6 +219,8 @@ function ChatServer:dispatch(sock, line)
         self:handle_message(sock, pkt)
     elseif t == "global" then
         self:handle_global(sock, pkt)
+    elseif t == "ack" then
+        self:handle_ack(sock, pkt)
     elseif t == "bye" then
         self:disconnect(sock, "client said bye")
     else
@@ -315,6 +319,21 @@ function ChatServer:handle_global(sock, pkt)
             end
         end
     end
+end
+
+-- Relay a delivery acknowledgement back to the original sender. Blind by
+-- design: the server only sees the nonce and usernames, never the content.
+function ChatServer:handle_ack(sock, pkt)
+    local sender = self.clients[sock].name
+    if type(pkt.nonce) ~= "string" or #pkt.nonce == 0 or #pkt.nonce > 128 then
+        self:send_json(sock, { type = "error", code = "bad_packet", detail = "missing nonce" })
+        return
+    end
+    local target_sock = self.by_name[tostring(pkt.to or "")]
+    if target_sock then
+        self:send_json(target_sock, { type = "receipt", from = sender, nonce = pkt.nonce })
+    end
+    -- Unknown/offline target: silently dropped, the sender's tick stays ✓.
 end
 
 function ChatServer:disconnect(sock, reason)

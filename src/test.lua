@@ -189,8 +189,10 @@ check("Colorize system notice is yellow",
 check("Colorize online roster is cyan",
     colorize.colorize("online: @alice @bob", true) ==
     "\27[36monline: @alice @bob\27[0m")
-check("Colorize own message is green",
-    colorize.colorize("→ @bob: hi", true) == "\27[32m→ @bob: hi\27[0m")
+check("Colorize sent tick is dim gray",
+    colorize.colorize("✓", true) == "\27[90m✓\27[0m")
+check("Colorize delivered tick is green",
+    colorize.colorize("✓✓", true) == "\27[32m✓✓\27[0m")
 local dm_a = colorize.colorize("alice: hi", true)
 local dm_b = colorize.colorize("bob: hi", true)
 check("Colorize DM uses 256-color wrap",
@@ -227,6 +229,23 @@ end
 
 plugin_manager:load_dir("plugins_nonexistent_dir", "server")
 check("load_dir tolerates missing directory", true)
+
+-- 17. Delivery-tick bookkeeping (pure ack_transition, no printing)
+local pending = {}
+local group = { left = 3 }
+pending.n1, pending.n2, pending.n3 = group, group, group
+local at = client_mod.ack_transition
+check("ack waiting while receipts remain", at(pending, "n1") == "waiting" and group.left == 2)
+check("ack waiting again", at(pending, "n2") == "waiting" and group.left == 1)
+check("ack done on final receipt", at(pending, "n3") == "done")
+check("group cleared after done", pending.n1 == nil and pending.n2 == nil and pending.n3 == nil)
+check("duplicate receipt ignored", at(pending, "n3") == nil)
+check("unknown nonce ignored", at(pending, "nope") == nil)
+
+-- Single-recipient DM: first receipt completes immediately
+local dm_pending = {}
+dm_pending.abc = { left = 1 }
+check("single-recipient ack done at once", at(dm_pending, "abc") == "done" and dm_pending.abc == nil)
 
 print(string.format("\n%d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

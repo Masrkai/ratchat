@@ -3,7 +3,9 @@
 -- Hooks the client's display filter ("display" event on the plugin manager,
 -- invoked from ChatClient:print_line) and wraps lines in ANSI escape codes:
 --   * [Error] / "* ..." system notices / "online:" / [Fingerprint] lines get
---     fixed colors per tag; "→ ..." lines (own messages) are green
+--     fixed colors per tag
+--   * delivery ticks: "✓" (sent, awaiting ack) is dim gray, "✓✓" (delivered
+--     to every recipient) is green
 --   * incoming "sender: ..." lines get a deterministic per-sender color
 --     (hashed username -> curated 256-color palette)
 --
@@ -54,7 +56,8 @@ local TAG_COLORS = {
     { "^%*", "33" },               -- yellow (system notices)
     { "^online:", "36" },          -- cyan
     { "^%[Fingerprint%]", "35" },  -- magenta
-    { "^→", "32" },                -- green (own messages)
+    { "^✓✓", "32" },               -- green (delivered to every recipient)
+    { "^✓", "90" },                -- dim gray (sent, awaiting ack)
 }
 
 local function wrap(code, text)

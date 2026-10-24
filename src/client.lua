@@ -27,6 +27,25 @@ ffi.cdef[[
 local POLLIN = 1
 local POLLHUP = 0x10
 
+-- Pure delivery-tick bookkeeping: one receipt arrived for `nonce`.
+-- pending maps nonce -> group table ({ left = recipients still to
+-- acknowledge }); all nonces of one send share a group (a global send
+-- produces one payload — and nonce — per recipient). Returns "done" (all
+-- acked, show ✓✓), "waiting" (more to come), or nil for an unknown or
+-- duplicate receipt. Mutates `pending`.
+local function ack_transition(pending, nonce)
+    local group = pending[nonce]
+    if not group then return nil end
+    if group.left <= 1 then
+        for n, g in pairs(pending) do
+            if g == group then pending[n] = nil end
+        end
+        return "done"
+    end
+    group.left = group.left - 1
+    return "waiting"
+end
+
 local ChatClient = {}
 ChatClient.__index = ChatClient
 
@@ -41,6 +60,8 @@ function ChatClient.new(username, host, port)
     self.x3dh_headers = {}  -- recipient -> X3DH block to attach to the first message
     self.roster = {}        -- list of online usernames (includes self)
     self.rbuf = ""          -- receive buffer for line framing
+    self.pending = {}       -- nonce -> recipients still to acknowledge (delivery ticks)
+    self.verbose = false    -- --verbose: show plugin-load + connect banners
     self.running = true
     return self
 end
@@ -175,7 +196,9 @@ function ChatClient:connect()
     end
 
     sock:settimeout(0) -- non-blocking; the chat loop polls
-    print(string.format("* Connected as '%s' (E2EE)", self.username))
+    if self.verbose then
+        print(string.format("* Connected as '%s' (E2EE)", self.username))
+    end
     plugin_manager:emit("client_joined", self.username)
     return true
 end
@@ -197,6 +220,26 @@ function ChatClient:print_line(text, is_async)
     end
     io.write("[" .. self.username .. "]> ")
     io.flush()
+end
+
+-- Delivery ticks: a "✓" is printed when a message is encrypted and handed
+-- to the server; it becomes "✓✓" once every intended recipient's client has
+-- acknowledged receipt (ack frames relayed by the server). Exposed pure
+-- transition (ack_transition) for tests.
+ChatClient.ack_transition = ack_transition
+
+function ChatClient:tick_sent(nonces, n_recipients)
+    local group = { left = n_recipients }
+    for _, nonce in ipairs(nonces) do
+        self.pending[nonce] = group
+    end
+    self:print_line("✓", true)
+end
+
+function ChatClient:tick_ack(nonce)
+    if ack_transition(self.pending, nonce) == "done" then
+        self:print_line("✓✓", true)
+    end
 end
 
 function ChatClient:establish_initiator(recipient, bundle)
@@ -293,7 +336,7 @@ function ChatClient:send_message(recipient, message)
     end
 
     if self:send_raw({ type = "message", recipient = recipient, payload = payload }) then
-        self:print_line("→ @" .. recipient .. ": " .. message)
+        self:tick_sent({ enc.nonce }, 1)
     end
 end
 
@@ -333,7 +376,12 @@ function ChatClient:send_global(text)
         return
     end
     if self:send_raw({ type = "global", items = items }) then
-        self:print_line("→ @all: " .. text)
+        -- One tick per send; ✓✓ once every recipient has acknowledged.
+        local nonces = {}
+        for _, item in ipairs(items) do
+            nonces[#nonces + 1] = item.payload.nonce
+        end
+        self:tick_sent(nonces, #items)
         if #failed > 0 then
             self:print_line("* Not delivered to: @" .. table.concat(failed, ", @"))
         end
@@ -347,6 +395,9 @@ end
 function ChatClient:handle_packet(pkt)
     if pkt.type == "message" then
         self:handle_incoming(pkt)
+    elseif pkt.type == "receipt" then
+        -- A recipient's client acknowledged one of our messages (server-relayed).
+        self:tick_ack(tostring(pkt.nonce or ""))
     elseif pkt.type == "system" then
         self:print_line("* " .. tostring(pkt.text), true)
     elseif pkt.type == "roster" then
@@ -423,6 +474,11 @@ function ChatClient:handle_incoming(pkt)
     end
 
     if ok2 and pt then
+        -- Acknowledge receipt so the sender's ✓ becomes ✓✓. The nonce is
+        -- routing metadata the server already sees; no plaintext involved.
+        if type(payload.nonce) == "string" then
+            self:send_raw({ type = "ack", to = sender, nonce = payload.nonce })
+        end
         self:print_line(sender .. ": " .. pt, true)
     else
         self:print_line("[Error] Decryption failed for a message from @" .. sender ..
