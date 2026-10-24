@@ -10,11 +10,11 @@ function cli.valid_username(s)
     return type(s) == "string" and #s >= 1 and #s <= 16 and s:match("^[%w_]+$") ~= nil
 end
 
--- Parses --host/--port/--name/--logs/--logfile/-h from argv. `mode` ("s"/"c")
--- is not accepted here: each entrypoint is single-purpose.
+-- Parses --host/--port/--name/--logs/--logfile/--verbose/-h from argv.
+-- `mode` ("s"/"c") is not accepted here: each entrypoint is single-purpose.
 -- Returns opts table, or nil + error message on bad input.
 function cli.parse_args(argv)
-    local opts = { host = nil, port = nil, name = nil, logs = nil, logfile = nil }
+    local opts = { host = nil, port = nil, name = nil, logs = nil, logfile = nil, verbose = nil }
     local i = 1
     while i <= #argv do
         local a = argv[i]
@@ -34,6 +34,8 @@ function cli.parse_args(argv)
             opts.name = argv[i]
         elseif a == "--logs" then
             opts.logs = true
+        elseif a == "--verbose" then
+            opts.verbose = true
         elseif a == "--logfile" then
             i = i + 1
             if not argv[i] then return nil, "--logfile expects a file path" end

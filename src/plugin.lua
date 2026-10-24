@@ -5,7 +5,8 @@
 -- plugins matching their workload via PluginManager:load_dir().
 local PluginManager = {
     plugins = {},
-    listeners = {}
+    listeners = {},
+    verbose = false -- when true, [Plugin] Loaded lines are printed on register
 }
 
 function PluginManager:register(plugin)
@@ -13,7 +14,9 @@ function PluginManager:register(plugin)
     if plugin.on_load then
         plugin.on_load(self)
     end
-    print(string.format("[Plugin] Loaded: %s (v%s)", plugin.name or "Unnamed", plugin.version or "1.0"))
+    if self.verbose then
+        print(string.format("[Plugin] Loaded: %s (v%s)", plugin.name or "Unnamed", plugin.version or "1.0"))
+    end
 end
 
 -- Discover and register plugins from a directory, filtered by workload.

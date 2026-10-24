@@ -6,12 +6,24 @@
 --   * maintains a global room: join/leave notices + roster broadcasts
 --
 -- Wire protocol: newline-terminated JSON frames over TCP.
---   C->S: register | prekey_request | message | global | bye
---   S->C: registered | prekey_bundle | message | system | roster | error
+--   C->S: register | prekey_request | message | global | ack | bye
+--   S->C: registered | prekey_bundle | message | system | roster | receipt | error
+-- (ack is relayed to the original sender as a receipt: delivery-tick
+-- metadata only — nonce + usernames, never message content.)
 
 local socket = require("socket")
 local json = require("cjson")
+local ffi = require("ffi")
 local plugin_manager = require("src.plugin")
+
+ffi.cdef[[
+    typedef void (*sighandler_t)(int);
+    sighandler_t signal(int signum, sighandler_t handler);
+]]
+
+local SIGINT = 2
+local SIG_DFL = 0
+local SIG_IGN = 1
 
 local ChatServer = {}
 ChatServer.__index = ChatServer
@@ -99,6 +111,17 @@ function ChatServer:online_count()
 end
 
 function ChatServer:start()
+    -- Ensure SIGINT can always stop us. If launched with SIGINT ignored (e.g.
+    -- background jobs inheriting SIG_IGN), LuaJIT skips its interrupt handler,
+    -- leaving the process un-killable via Ctrl+C/kill -INT. Reset to SIG_DFL
+    -- when SIG_IGN is detected so the OS terminates the process and frees the port.
+    pcall(function()
+        local prev = ffi.C.signal(SIGINT, ffi.cast("sighandler_t", SIG_DFL))
+        if tonumber(ffi.cast("intptr_t", prev)) ~= SIG_IGN then
+            ffi.C.signal(SIGINT, prev) -- restore LuaJIT's graceful-shutdown handler
+        end
+    end)
+
     -- Explicit socket creation so SO_REUSEADDR can be set before bind
     -- (allows immediate restart after shutdown without TIME_WAIT errors).
     local server = socket.tcp()
@@ -217,6 +240,8 @@ function ChatServer:dispatch(sock, line)
         self:handle_message(sock, pkt)
     elseif t == "global" then
         self:handle_global(sock, pkt)
+    elseif t == "ack" then
+        self:handle_ack(sock, pkt)
     elseif t == "bye" then
         self:disconnect(sock, "client said bye")
     else
@@ -315,6 +340,21 @@ function ChatServer:handle_global(sock, pkt)
             end
         end
     end
+end
+
+-- Relay a delivery acknowledgement back to the original sender. Blind by
+-- design: the server only sees the nonce and usernames, never the content.
+function ChatServer:handle_ack(sock, pkt)
+    local sender = self.clients[sock].name
+    if type(pkt.nonce) ~= "string" or #pkt.nonce == 0 or #pkt.nonce > 128 then
+        self:send_json(sock, { type = "error", code = "bad_packet", detail = "missing nonce" })
+        return
+    end
+    local target_sock = self.by_name[tostring(pkt.to or "")]
+    if target_sock then
+        self:send_json(target_sock, { type = "receipt", from = sender, nonce = pkt.nonce })
+    end
+    -- Unknown/offline target: silently dropped, the sender's tick stays ✓.
 end
 
 function ChatServer:disconnect(sock, reason)

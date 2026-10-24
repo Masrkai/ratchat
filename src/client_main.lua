@@ -13,6 +13,7 @@ local function usage()
     print("  --host HOST      connect address (default 127.0.0.1)")
     print("  --port PORT      TCP port (default 8888)")
     print("  --name NAME      username (skips the prompt)")
+    print("  --verbose        show plugin-load and connect banners")
     print("  -h, --help       show this help")
 end
 
@@ -30,6 +31,9 @@ local host = opts.host or "127.0.0.1"
 local port = opts.port or 8888
 
 -- Client-scoped plugins only (see plugins/colorize.lua for an example).
+-- Startup banners ([Plugin] Loaded / * Connected as ...) are hidden unless
+-- --verbose was passed.
+plugin_manager.verbose = opts.verbose and true or false
 plugin_manager:load_dir("plugins", "client")
 
 local username = opts.name
@@ -44,6 +48,7 @@ else
 end
 
 local c = client_mod.new(username, host, port)
+c.verbose = plugin_manager.verbose
 local ok, connect_err = c:connect()
 
 -- Re-prompt on rejected usernames
@@ -54,6 +59,7 @@ while not ok and (connect_err == "name_taken" or connect_err == "bad_name") do
     local new_name = cli.prompt_username("Enter a different username: ")
     if not new_name then return end
     c = client_mod.new(new_name, host, port)
+    c.verbose = plugin_manager.verbose
     ok, connect_err = c:connect()
 end
 
