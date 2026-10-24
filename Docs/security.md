@@ -25,8 +25,10 @@ This document outlines the security architecture, cryptographic guarantees, and 
 While the server relays encrypted payloads, a malicious server or network adversary could attempt a Man-in-the-Middle attack by substituting public keys in transit (e.g., swapping Bob's Prekey Bundle with the attacker's bundle). To completely mitigate MITM attacks, the following measures are enforced or recommended:
 
 ### A. Safety Number / Fingerprint Verification (Out-of-Band Verification)
-- Clients compute a cryptographic fingerprint (hash) of their combined Identity Keys (`IK_A` and `IK_B`).
-- Users compare these fingerprints out-of-band (e.g., via QR code or voice call). If the fingerprints match, no MITM attack has occurred.
+- Implemented via the `/fingerprint [@user]` chat command.
+- The fingerprint is SHA-256 over the peer's raw Identity Key bytes; the first 30 digest bytes each become two decimal digits (byte mod 100), yielding a **60-digit safety number** grouped 5 digits at a time (12 groups), Signal-style.
+- Users compare these fingerprints out-of-band (in person or voice call). If the 60 digits match on both sides, no prekey-substitution MITM has occurred.
+- A peer's fingerprint is available once an E2EE session exists (their IK is pinned in `peer_iks` at session setup); your own is available immediately.
 
 ### B. Certificate-Signed Prekeys
 - Signed Prekeys (`SPK`) are signed by the user's long-term Identity Key (`IK`) using Ed25519 signatures.

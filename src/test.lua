@@ -145,6 +145,23 @@ check("Client prekey bundle shape", upload.ik and upload.spk and upload.spk_sig
 check("Client SPK signature valid",
     crypto.ed25519_verify(upload.ed_id, crypto.from_hex(upload.spk), upload.spk_sig))
 
+-- 14. Fingerprint (human-comparable IK hash, Signal-style 60 digits)
+local fp_kat = crypto.fingerprint(
+    "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+check("Fingerprint known-answer (SHA-256 KAT)", fp_kat ==
+    "99130 54102 96510 24518 84728 77891 79441 86456 15457 80071 93848 82715",
+    "got: " .. tostring(fp_kat))
+
+local fp_a = crypto.fingerprint(alice_client.crypto.identity_key.public)
+local fp_b = crypto.fingerprint(client_mod.new("Bob", "127.0.0.1", 8888).crypto.identity_key.public)
+local fp_shape = #fp_a == 71
+    and fp_a:match("^%d%d%d%d%d") ~= nil
+    and fp_a:match("%d%d%d%d%d$") ~= nil
+    and select(2, fp_a:gsub(" ", "")) == 11
+check("Fingerprint format (12 groups of 5 digits)", fp_shape, "got: " .. fp_a)
+check("Fingerprints differ across keys", fp_a ~= fp_b)
+check("Fingerprint deterministic", crypto.fingerprint(alice_client.crypto.identity_key.public) == fp_a)
+
 print(string.format("\n%d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end
 print("All Signal Protocol tests passed successfully!")

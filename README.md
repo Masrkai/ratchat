@@ -49,11 +49,21 @@ Provides LuaJIT, LuaRocks, OpenSSL, LuaSocket and lua-cjson.
    ```
    Select `s`. Choose `y/n` for connection logs (who connected/disconnected).
 
+   Or non-interactively, on any host/port:
+   ```bash
+   luajit src/main.lua s --host 0.0.0.0 --port 9000 --logs
+   ```
+
 2. **Start clients in separate terminals**:
    ```bash
    luajit src/main.lua
    ```
    Select `c`, enter a username (1-16 letters/digits/underscores).
+
+   Or point a client at any server instance directly:
+   ```bash
+   luajit src/main.lua c --host <server-host> --port 9000 --name Alice
+   ```
 
 > Run it as `luajit src/main.lua` — do not use a stale compiled `main.luac`.
 
@@ -64,6 +74,7 @@ Provides LuaJIT, LuaRocks, OpenSSL, LuaSocket and lua-cjson.
 | `hello` | Send to the **global room** (encrypted separately per online member) |
 | `@Bob hi bob` | Direct message to `@Bob` |
 | `/who` | Show online users |
+| `/fingerprint [@user]` | Show 60-digit safety number (yours, or a peer's) for out-of-band MITM verification |
 | `/help` | Command help |
 | `exit` | Quit |
 
