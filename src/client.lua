@@ -9,7 +9,7 @@
 -- Chat commands:
 --   plain text          -> global room
 --   @username message   -> direct message
---   /who | /help | exit
+--   /who | /fingerprint [@user] | /help | exit
 
 local socket = require("socket")
 local json = require("cjson")
@@ -433,6 +433,25 @@ end
 -- Interactive chat loop (poll on stdin + socket)
 -- ---------------------------------------------------------------------------
 
+-- Show the human-comparable fingerprint of an identity key.
+-- No argument: our own fingerprint. With @user: the peer's IK fingerprint,
+-- available once an E2EE session exists (peer IK is pinned at session setup).
+function ChatClient:show_fingerprint(user)
+    if not user then
+        self:print_line("[Fingerprint] @" .. self.username .. " (you): " ..
+            crypto_manager.fingerprint(self.crypto.identity_key.public))
+        return
+    end
+    local ik = self.peer_iks[user]
+    if not ik then
+        self:print_line("[Error] No E2EE session with @" .. user ..
+            " yet — fingerprints are available after the first message exchange.", true)
+        return
+    end
+    self:print_line("[Fingerprint] @" .. user .. ": " .. crypto_manager.fingerprint(ik))
+    self:print_line("[Fingerprint] Compare out-of-band (in person or voice) to rule out a MITM.", true)
+end
+
 function ChatClient:process_input(line)
     line = line:match("^%s*(.-)%s*$")
     if line == "" then return end
@@ -442,7 +461,7 @@ function ChatClient:process_input(line)
         self.running = false
         return
     elseif line == "/help" then
-        self:print_line("Commands: plain text = global room | @user msg = direct message | /who | /help | exit")
+        self:print_line("Commands: plain text = global room | @user msg = direct message | /who | /fingerprint [@user] | /help | exit")
         return
     elseif line == "/who" then
         if #self.roster == 0 then
@@ -450,6 +469,9 @@ function ChatClient:process_input(line)
         else
             self:print_line("[Online] @" .. table.concat(self.roster, " @"))
         end
+        return
+    elseif line == "/fingerprint" or line:match("^/fingerprint%s+%S+") then
+        self:show_fingerprint(line:match("^/fingerprint%s+@?(%S+)"))
         return
     end
 
@@ -465,7 +487,7 @@ function ChatClient:start_chat_loop()
     print("\n--- Chat Active (global room) ---")
     print("Plain text          -> global room (E2EE per member)")
     print("@username message   -> direct message")
-    print("/who /help exit     -> roster, help, quit\n")
+    print("/who /fingerprint /help exit -> roster, fingerprints, help, quit\n")
 
     local fds = ffi.new("pollfd_t[2]")
     fds[0].fd = 0 -- stdin

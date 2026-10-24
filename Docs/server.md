@@ -36,8 +36,10 @@ clients' rosters in sync.
 
 ### 3. Network Configuration
 - By default, the server binds to `127.0.0.1` on port `8888`.
-- To host on a public IP or custom port, edit `src/main.lua`:
-  ```lua
-  local s = server.new("0.0.0.0", 8888)
+- To host on a public IP or custom port, use CLI flags:
+  ```bash
+  luajit src/main.lua s --host 0.0.0.0 --port 9000 --logs
   ```
+  (`--host 0.0.0.0` accepts connections on all interfaces; omit `--logs` to stay quiet.)
 - Ensure your firewall allows incoming TCP traffic on your chosen port.
+- `SO_REUSEADDR` is set before bind, so the server can restart immediately after shutdown.

@@ -133,6 +133,24 @@ local function hmac_sha256(key, msg)
 end
 
 -- HKDF-SHA256 extract + expand (RFC 5869)
+-- Human-comparable fingerprint of an identity key (hex), Signal-style.
+-- SHA-256 over the raw key bytes; the first 30 digest bytes each become two
+-- decimal digits (byte mod 100), yielding 60 digits grouped 5 at a time.
+-- Two peers can read this aloud to each other to rule out a prekey-substitution MITM.
+local function fingerprint(ik_hex)
+    local digest = sha256_raw(from_hex(ik_hex))
+    local digits = {}
+    for i = 1, 30 do
+        digits[#digits + 1] = string.format("%02d", digest:byte(i) % 100)
+    end
+    local num = table.concat(digits)
+    local groups = {}
+    for i = 1, 60, 5 do
+        groups[#groups + 1] = num:sub(i, i + 4)
+    end
+    return table.concat(groups, " ")
+end
+
 local function hkdf(salt, ikm, info, length)
     local prk = hmac_sha256(salt, ikm)
     local t, okm, i = "", "", 0
@@ -453,6 +471,7 @@ local M = {
     random_bytes = random_bytes,
     sha256_raw = sha256_raw,
     sha256_hex = sha256_hex,
+    fingerprint = fingerprint,
     hmac_sha256 = hmac_sha256,
     hkdf = hkdf,
     gen_x25519 = gen_x25519,

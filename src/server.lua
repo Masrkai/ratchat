@@ -82,10 +82,20 @@ function ChatServer:online_count()
 end
 
 function ChatServer:start()
-    local server, err = socket.bind(self.host, self.port)
-    if not server then
+    -- Explicit socket creation so SO_REUSEADDR can be set before bind
+    -- (allows immediate restart after shutdown without TIME_WAIT errors).
+    local server = socket.tcp()
+    pcall(function() server:setoption("reuseaddr", true) end)
+    local ok, err = server:bind(self.host, self.port)
+    if not ok then
         print(string.format("[Server] Failed to bind %s:%d (%s)", self.host, self.port, tostring(err)))
         print("[Server] Is another server already running on this port?")
+        return false
+    end
+    local lok, lerr = server:listen()
+    if not lok then
+        print(string.format("[Server] Failed to listen on %s:%d (%s)", self.host, self.port, tostring(lerr)))
+        pcall(function() server:close() end)
         return false
     end
     server:settimeout(0.5)
