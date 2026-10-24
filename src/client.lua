@@ -187,6 +187,9 @@ end
 -- Print helper: async prints get a leading newline (prompt is mid-line),
 -- then the input prompt is redrawn.
 function ChatClient:print_line(text, is_async)
+    -- Display-side plugin hook: lets plugins transform the text (e.g. add
+    -- ANSI colors) before it is printed. Wire protocol stays untouched.
+    text = plugin_manager:filter("display", text, is_async)
     if is_async then
         io.write("\n" .. text .. "\n")
     else

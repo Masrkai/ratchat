@@ -29,6 +29,22 @@ function PluginManager:emit(event_name, ...)
     end
 end
 
+-- Filter pipeline: run all listeners for an event over a value, letting each
+-- one return a transformed replacement (e.g. display-side text colorizing).
+-- Non-string returns (including errors, which are pcall-caught) are ignored.
+function PluginManager:filter(event_name, value, ...)
+    local listeners = self.listeners[event_name]
+    if listeners then
+        for _, cb in ipairs(listeners) do
+            local ok, newv = pcall(cb, value, ...)
+            if ok and type(newv) == "string" then
+                value = newv
+            end
+        end
+    end
+    return value
+end
+
 function PluginManager:use_middleware(fn)
     table.insert(self.middleware_pipeline, fn)
 end

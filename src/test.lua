@@ -162,6 +162,37 @@ check("Fingerprint format (12 groups of 5 digits)", fp_shape, "got: " .. fp_a)
 check("Fingerprints differ across keys", fp_a ~= fp_b)
 check("Fingerprint deterministic", crypto.fingerprint(alice_client.crypto.identity_key.public) == fp_a)
 
+-- 15. Plugin display filter + colorize plugin
+local plugin_manager = require("src.plugin")
+local colorize = require("plugins.colorize")
+
+check("Filter passes value through with no listeners",
+    plugin_manager:filter("display_test_none", "hi") == "hi")
+
+plugin_manager:on("filter_test", function(v) return v .. "-1" end)
+plugin_manager:on("filter_test", function(v) return v .. "-2" end)
+check("Filter chains transforms", plugin_manager:filter("filter_test", "x") == "x-1-2")
+
+plugin_manager:on("filter_test", function() return nil end)   -- ignored
+plugin_manager:on("filter_test", function() error("boom") end) -- pcall-caught
+check("Filter tolerates nil/error returns", plugin_manager:filter("filter_test", "y") == "y-1-2")
+
+check("Colorize disabled leaves text unchanged",
+    colorize.colorize("[Error] boom", false) == "[Error] boom")
+check("Colorize plain text unchanged when enabled",
+    colorize.colorize("hello", true) == "hello")
+check("Colorize error line is red",
+    colorize.colorize("[Error] boom", true) == "\27[31m[Error] boom\27[0m")
+check("Colorize own message is green",
+    colorize.colorize("[You → @bob] hi", true) == "\27[32m[You → @bob] hi\27[0m")
+local dm_a = colorize.colorize("[@alice] hi", true)
+local dm_b = colorize.colorize("[@bob] hi", true)
+check("Colorize DM uses 256-color wrap",
+    dm_a:match("^\27%[38;5;%d+m%[@alice%] hi\27%[0m$") ~= nil, dm_a)
+check("Colorize DM color deterministic", dm_a == colorize.colorize("[@alice] hi", true))
+check("Colorize distinct senders get distinct colors", dm_a ~= dm_b,
+    "alice=" .. dm_a .. " bob=" .. dm_b)
+
 print(string.format("\n%d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end
 print("All Signal Protocol tests passed successfully!")

@@ -7,8 +7,9 @@ local server_mod = require("src.server")
 local client_mod = require("src.client")
 local plugin_manager = require("src.plugin")
 
--- Optional sample plugin (safe if the plugins/ directory is absent)
+-- Optional sample plugins (safe if the plugins/ directory is absent)
 pcall(function() plugin_manager:register(require("plugins.logger")) end)
+pcall(function() plugin_manager:register(require("plugins.colorize")) end)
 
 local function valid_username(s)
     return type(s) == "string" and #s >= 1 and #s <= 16 and s:match("^[%w_]+$") ~= nil
