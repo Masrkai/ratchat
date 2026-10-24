@@ -2,9 +2,9 @@
 --
 -- Hooks the client's display filter ("display" event on the plugin manager,
 -- invoked from ChatClient:print_line) and wraps lines in ANSI escape codes:
---   * [Error] / [Global] / [Client] / [Online] / [Fingerprint] / [You ...]
---     lines get fixed colors per tag
---   * incoming "[@sender] ..." lines get a deterministic per-sender color
+--   * [Error] / "* ..." system notices / "online:" / [Fingerprint] lines get
+--     fixed colors per tag; "→ ..." lines (own messages) are green
+--   * incoming "sender: ..." lines get a deterministic per-sender color
 --     (hashed username -> curated 256-color palette)
 --
 -- Colors are display-only: they never touch the wire or the crypto layer.
@@ -47,14 +47,14 @@ local function sender_color(name)
     return PALETTE[(hash_name(name) % #PALETTE) + 1]
 end
 
--- { pattern, ANSI code } — first match wins. Checked after the [@sender] rule.
+-- { pattern, ANSI code } — first match wins. Checked BEFORE the sender rule
+-- (so e.g. "online: ..." is not mistaken for a message from a user "online").
 local TAG_COLORS = {
     { "^%[Error%]", "31" },        -- red
-    { "^%[Global%]", "33" },       -- yellow
-    { "^%[Client%]", "34" },       -- blue
-    { "^%[Online%]", "36" },       -- cyan
+    { "^%*", "33" },               -- yellow (system notices)
+    { "^online:", "36" },          -- cyan
     { "^%[Fingerprint%]", "35" },  -- magenta
-    { "^%[You", "32" },            -- green (own messages)
+    { "^→", "32" },                -- green (own messages)
 }
 
 local function wrap(code, text)
@@ -68,16 +68,16 @@ function Colorize.colorize(text, enabled)
         return text
     end
 
-    -- Incoming DM: "[@sender] message"
-    local sender = text:match("^%[@([%w_]+)%]")
-    if sender then
-        return wrap("38;5;" .. sender_color(sender), text)
-    end
-
     for _, rule in ipairs(TAG_COLORS) do
         if text:match(rule[1]) then
             return wrap(rule[2], text)
         end
+    end
+
+    -- Incoming DM: "sender: message"
+    local sender = text:match("^([%w_]+):")
+    if sender then
+        return wrap("38;5;" .. sender_color(sender), text)
     end
     return text
 end
