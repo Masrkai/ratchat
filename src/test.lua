@@ -217,6 +217,17 @@ check("load_dir skips other-scope plugins", count_named(plugin_manager, "Coloriz
 plugin_manager:load_dir("plugins", "client")
 check("load_dir registers client-scoped plugin", count_named(plugin_manager, "Colorize") == 1)
 
+-- display_tick filter (used when the client rewrites the input line in place)
+local tick_sent_f = plugin_manager:filter("display_tick", "✓")
+local tick_deliv_f = plugin_manager:filter("display_tick", "✓✓")
+if colorize.enabled then
+    check("display_tick sent is dim gray", tick_sent_f == "\27[90m✓\27[0m", tick_sent_f)
+    check("display_tick delivered is green", tick_deliv_f == "\27[32m✓✓\27[0m", tick_deliv_f)
+else
+    check("display_tick passthrough when colors disabled",
+        tick_sent_f == "✓" and tick_deliv_f == "✓✓")
+end
+
 local tmp_path = "plugins/zzz_unscoped_test_plugin.lua"
 local f = io.open(tmp_path, "w")
 if f then

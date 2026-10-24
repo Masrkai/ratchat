@@ -4,8 +4,9 @@
 -- invoked from ChatClient:print_line) and wraps lines in ANSI escape codes:
 --   * [Error] / "* ..." system notices / "online:" / [Fingerprint] lines get
 --     fixed colors per tag
---   * delivery ticks: "✓" (sent, awaiting ack) is dim gray, "✓✓" (delivered
---     to every recipient) is green
+--   * delivery ticks via the "display_tick" event (the client rewrites the
+--     submitted input line in place as "[user]> ✓✓ message"): "✓" (sent,
+--     awaiting ack) is dim gray, "✓✓" (delivered to every recipient) is green
 --   * incoming "sender: ..." lines get a deterministic per-sender color
 --     (hashed username -> curated 256-color palette)
 --
@@ -91,6 +92,14 @@ function Colorize.on_load(manager)
 
     manager:on("display", function(text)
         return Colorize.colorize(text, Colorize.enabled)
+    end)
+
+    -- Delivery ticks as they are written into the rewritten input line.
+    manager:on("display_tick", function(tick)
+        if not Colorize.enabled then return tick end
+        if tick == "✓✓" then return wrap("32", tick) end
+        if tick == "✓" then return wrap("90", tick) end
+        return tick
     end)
 end
 

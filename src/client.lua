@@ -4,6 +4,7 @@
 -- * Fetches recipients' bundles, verifies SPK signatures, runs X3DH (initiator)
 -- * Answers inbound X3DH from the first received message (receiver)
 -- * Live receive while typing: FFI poll() on stdin + socket (POSIX)
+-- * Delivery ticks rewrite the submitted line in place: [user]> ✓✓ message
 -- * Global room messages are encrypted pairwise per online member
 --
 -- Chat commands:
@@ -22,10 +23,19 @@ local plugin_manager = require("src.plugin")
 ffi.cdef[[
     typedef struct pollfd { int fd; short events; short revents; } pollfd_t;
     int poll(pollfd_t *fds, unsigned long nfds, int timeout);
+    int isatty(int fd);
 ]]
 
 local POLLIN = 1
 local POLLHUP = 0x10
+
+-- Delivery ticks rewrite the typed input line in place (ANSI cursor moves),
+-- which only makes sense on a real terminal. Piped/redirected output falls
+-- back to plain ✓/✓✓ lines.
+local function stdout_is_tty()
+    local ok, res = pcall(function() return ffi.C.isatty(1) == 1 end)
+    return ok and res or false
+end
 
 -- Pure delivery-tick bookkeeping: one receipt arrived for `nonce`.
 -- pending maps nonce -> group table ({ left = recipients still to
@@ -60,8 +70,11 @@ function ChatClient.new(username, host, port)
     self.x3dh_headers = {}  -- recipient -> X3DH block to attach to the first message
     self.roster = {}        -- list of online usernames (includes self)
     self.rbuf = ""          -- receive buffer for line framing
-    self.pending = {}       -- nonce -> recipients still to acknowledge (delivery ticks)
+    self.pending = {}       -- nonce -> receipt group (delivery ticks)
     self.verbose = false    -- --verbose: show plugin-load + connect banners
+    self.tty = stdout_is_tty()
+    self.term_row = 0       -- cursor row, tracked relative to the input row
+    self.input_row = nil    -- row of the last submitted input line
     self.running = true
     return self
 end
@@ -196,9 +209,9 @@ function ChatClient:connect()
     end
 
     sock:settimeout(0) -- non-blocking; the chat loop polls
-    if self.verbose then
-        print(string.format("* Connected as '%s' (E2EE)", self.username))
-    end
+    -- Shown by start_chat_loop (kept off the hot path so it goes through the
+    -- row-tracked printer); hidden unless --verbose.
+    self.join_banner = string.format("* Connected as '%s' (E2EE)", self.username)
     plugin_manager:emit("client_joined", self.username)
     return true
 end
@@ -208,36 +221,67 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Print helper: async prints get a leading newline (prompt is mid-line),
--- then the input prompt is redrawn.
+-- then the input prompt is redrawn. term_row tracks how many rows the cursor
+-- sits below the last submitted input line, so delivery ticks can rewrite
+-- that line in place later (see rewrite_input_line).
+function ChatClient:draw_prompt()
+    io.write("[" .. self.username .. "]> ")
+    io.flush()
+end
+
 function ChatClient:print_line(text, is_async)
     -- Display-side plugin hook: lets plugins transform the text (e.g. add
     -- ANSI colors) before it is printed. Wire protocol stays untouched.
     text = plugin_manager:filter("display", text, is_async)
     if is_async then
         io.write("\n" .. text .. "\n")
+        self.term_row = self.term_row + 2
     else
         print(text)
+        self.term_row = self.term_row + 1
     end
-    io.write("[" .. self.username .. "]> ")
-    io.flush()
+    self:draw_prompt()
 end
 
--- Delivery ticks: a "✓" is printed when a message is encrypted and handed
--- to the server; it becomes "✓✓" once every intended recipient's client has
--- acknowledged receipt (ack frames relayed by the server). Exposed pure
--- transition (ack_transition) for tests.
+-- Delivery ticks: the submitted input line is rewritten in place from
+--   [user]> hello !   to   [user]> ✓ hello !   and finally   [user]> ✓✓ hello !
+-- once every intended recipient's client has acknowledged receipt (ack
+-- frames relayed by the server). All nonces of one send share a group that
+-- remembers the input row and text. Exposed pure transition (ack_transition)
+-- for tests.
 ChatClient.ack_transition = ack_transition
 
-function ChatClient:tick_sent(nonces, n_recipients)
-    local group = { left = n_recipients }
+-- Replace the content of a previously printed row (relative cursor move),
+-- then return to the prompt row and redraw the prompt. Skipped when the
+-- target row is too far up to be reliably reachable (scrolled away).
+function ChatClient:rewrite_input_line(row, content)
+    local up = self.term_row - row
+    if up < 1 or up > 20 then return end
+    io.write("\27[" .. up .. "A\r\27[2K" .. content .. "\27[" .. up .. "B\r")
+    self:draw_prompt()
+end
+
+function ChatClient:tick_sent(nonces, n_recipients, text)
+    local group = { left = n_recipients, row = self.input_row, text = text }
     for _, nonce in ipairs(nonces) do
         self.pending[nonce] = group
     end
-    self:print_line("✓", true)
+    if self.tty then
+        self:rewrite_input_line(group.row, "[" .. self.username .. "]> " ..
+            plugin_manager:filter("display_tick", "✓") .. " " .. text)
+    else
+        self:print_line("✓", true) -- piped output: no cursor games
+    end
 end
 
 function ChatClient:tick_ack(nonce)
-    if ack_transition(self.pending, nonce) == "done" then
+    local group = self.pending[nonce]
+    if not group then return end -- unknown/duplicate receipt
+    if ack_transition(self.pending, nonce) ~= "done" then return end
+    if self.tty then
+        self:rewrite_input_line(group.row, "[" .. self.username .. "]> " ..
+            plugin_manager:filter("display_tick", "✓✓") .. " " .. group.text)
+    else
         self:print_line("✓✓", true)
     end
 end
@@ -336,7 +380,7 @@ function ChatClient:send_message(recipient, message)
     end
 
     if self:send_raw({ type = "message", recipient = recipient, payload = payload }) then
-        self:tick_sent({ enc.nonce }, 1)
+        self:tick_sent({ enc.nonce }, 1, message)
     end
 end
 
@@ -381,7 +425,7 @@ function ChatClient:send_global(text)
         for _, item in ipairs(items) do
             nonces[#nonces + 1] = item.payload.nonce
         end
-        self:tick_sent(nonces, #items)
+        self:tick_sent(nonces, #items, text)
         if #failed > 0 then
             self:print_line("* Not delivered to: @" .. table.concat(failed, ", @"))
         end
@@ -511,6 +555,10 @@ end
 
 function ChatClient:process_input(line)
     line = line:match("^%s*(.-)%s*$")
+    -- The tty echoed the submitted line one row above the cursor; remember
+    -- that row so delivery ticks can rewrite it in place.
+    self.input_row = self.term_row
+    self.term_row = self.term_row + 1
     if line == "" then return end
 
     if line == "exit" or line == "/quit" then
@@ -546,8 +594,11 @@ function ChatClient:start_chat_loop()
     fds[0].events = POLLIN
     fds[1].events = POLLIN
 
-    io.write("[" .. self.username .. "]> ")
-    io.flush()
+    if self.verbose and self.join_banner then
+        self:print_line(self.join_banner) -- also draws the first prompt
+    else
+        self:draw_prompt()
+    end
 
     while self.running do
         -- Dispatch frames stranded in rbuf (e.g. read during handshake)
