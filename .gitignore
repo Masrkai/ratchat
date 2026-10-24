@@ -1,0 +1,6 @@
+*.odt
+*vscode
+*__pycache__
+main.luac
+*.luac
+

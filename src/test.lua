@@ -1,0 +1,150 @@
+-- test.lua - Automated test suite for Signal Protocol & Lua E2EE Chat
+--
+-- Validates real cryptographic behaviour:
+--   * RFC 4231 (HMAC-SHA256) and RFC 5869 (HKDF) known-answer vectors
+--   * X25519 key agreement, Ed25519 signatures, AES-256-GCM auth
+--   * X3DH initiator/receiver shared-secret agreement
+--   * Double Ratchet: both directions, out-of-order, replay, tamper rejection
+
+local crypto = require("src.crypto")
+local double_ratchet = require("src.double_ratchet")
+
+local passed, failed = 0, 0
+
+local function check(name, cond, detail)
+    if cond then
+        passed = passed + 1
+        print("  [PASS] " .. name)
+    else
+        failed = failed + 1
+        print("  [FAIL] " .. name .. (detail and (" - " .. tostring(detail)) or ""))
+    end
+end
+
+print("Running Signal Protocol Test Suite...")
+
+-- 1. X25519 keygen + symmetric key agreement
+local a = crypto.gen_x25519()
+local b = crypto.gen_x25519()
+local s1 = crypto.x25519(a.private, b.public)
+local s2 = crypto.x25519(b.private, a.public)
+check("X25519 keygen", #a.public == 64 and #a.private == 64)
+check("X25519 symmetric derive", s1 == s2 and #s1 == 32)
+
+-- 2. Ed25519 sign/verify + tamper rejection
+local ed = crypto.gen_ed25519()
+local sig = crypto.ed25519_sign(ed.private, "hello world")
+check("Ed25519 sign", #sig == 128)
+check("Ed25519 verify ok", crypto.ed25519_verify(ed.public, "hello world", sig) == true)
+check("Ed25519 verify tampered msg", crypto.ed25519_verify(ed.public, "hello worlt", sig) == false)
+check("Ed25519 verify tampered sig", crypto.ed25519_verify(ed.public, "hello world", sig:sub(1, 126) .. "zz") == false)
+
+-- 3. HMAC-SHA256 - RFC 4231 Test Case 1
+local h = crypto.hmac_sha256(string.rep("\x0b", 20), "Hi There")
+check("HMAC-SHA256 RFC4231 TC1", crypto.to_hex(h) ==
+    "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7", crypto.to_hex(h))
+
+-- 4. HKDF-SHA256 - RFC 5869 Test Case 1
+local okm = crypto.hkdf(
+    "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c",
+    string.rep("\x0b", 22),
+    "\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9",
+    42)
+check("HKDF-SHA256 RFC5869 TC1", crypto.to_hex(okm) ==
+    "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865", crypto.to_hex(okm))
+
+-- 5. AES-256-GCM roundtrip + tamper rejection
+local key = crypto.random_bytes(32)
+local enc = crypto.aes_gcm_encrypt(key, "secret message", "aad-data")
+check("AES-GCM encrypt", enc.ct and enc.nonce and enc.tag and #enc.tag == 32)
+local pt = crypto.aes_gcm_decrypt(key, enc.nonce, enc.ct, enc.tag, "aad-data")
+check("AES-GCM decrypt roundtrip", pt == "secret message", tostring(pt))
+local bad = crypto.aes_gcm_decrypt(key, enc.nonce, enc.ct:sub(1, -4) .. "000", enc.tag, "aad-data")
+check("AES-GCM tampered ct rejected", bad == nil)
+local bad2 = crypto.aes_gcm_decrypt(key, enc.nonce, enc.ct, enc.tag, "wrong-aad")
+check("AES-GCM wrong aad rejected", bad2 == nil)
+local empty = crypto.aes_gcm_encrypt(key, "", "aad")
+check("AES-GCM empty plaintext", crypto.aes_gcm_decrypt(key, empty.nonce, empty.ct, empty.tag, "aad") == "")
+
+-- 6. X3DH initiator/receiver agreement (with and without OPK)
+local bob_cm, alice_cm = crypto.new(), crypto.new()
+local bundle = bob_cm:get_upload_bundle()
+local opk = bundle.opks[1]
+local bundle_with = { ik = bundle.ik, spk = bundle.spk, spk_sig = bundle.spk_sig,
+    ed_id = bundle.ed_id, opk = { id = opk.id, pub = opk.pub } }
+local sk_a, ek_pub = alice_cm:x3dh_initiator(bundle_with)
+local sk_b = bob_cm:x3dh_receiver(bob_cm.identity_key.private, bob_cm.signed_prekey.private,
+    bob_cm:get_opk_priv(opk.id), alice_cm.identity_key.public, ek_pub)
+check("X3DH agreement (with OPK)", sk_a == sk_b and #sk_a == 32)
+
+local bundle_without = { ik = bundle.ik, spk = bundle.spk, spk_sig = bundle.spk_sig, ed_id = bundle.ed_id }
+local sk_a2, ek2 = alice_cm:x3dh_initiator(bundle_without)
+local sk_b2 = bob_cm:x3dh_receiver(bob_cm.identity_key.private, bob_cm.signed_prekey.private,
+    nil, alice_cm.identity_key.public, ek2)
+check("X3DH agreement (no OPK)", sk_a2 == sk_b2 and #sk_a2 == 32)
+
+-- 7. X3DH rejects a tampered SPK signature (MITM guard)
+local bad_bundle = { ik = bundle.ik, spk = bundle.spk, spk_sig = string.rep("ab", 32), ed_id = bundle.ed_id }
+local ok3, err3 = pcall(function() return alice_cm:x3dh_initiator(bad_bundle) end)
+check("X3DH rejects bad SPK signature", not ok3, tostring(err3))
+
+-- 8. Double Ratchet: full conversation, both directions
+local ad_ab = alice_cm.identity_key.public .. bob_cm.identity_key.public
+local ad_ba = bob_cm.identity_key.public .. alice_cm.identity_key.public
+local ra = double_ratchet.new(sk_a, true, bundle_with.spk, nil)
+local rb = double_ratchet.new(sk_b, false, nil, bob_cm.signed_prekey.private)
+
+local m1 = ra:encrypt("hello bob", ad_ab)
+check("Ratchet A->B (first msg)", rb:decrypt(m1, ad_ab) == "hello bob")
+local m2 = rb:encrypt("hi alice", ad_ba)
+check("Ratchet B->A (first msg)", ra:decrypt(m2, ad_ba) == "hi alice")
+
+local rounds_ok = true
+for i = 1, 5 do
+    local ma = ra:encrypt("ping " .. i, ad_ab)
+    local mb = rb:encrypt("pong " .. i, ad_ba)
+    if rb:decrypt(ma, ad_ab) ~= "ping " .. i then rounds_ok = false end
+    if ra:decrypt(mb, ad_ba) ~= "pong " .. i then rounds_ok = false end
+end
+check("Ratchet 5 bidirectional rounds", rounds_ok)
+
+-- 9. Out-of-order delivery (skipped message keys)
+local o1 = ra:encrypt("o1", ad_ab)
+local o2 = ra:encrypt("o2", ad_ab)
+local o3 = ra:encrypt("o3", ad_ab)
+check("Out-of-order 3rd first", rb:decrypt(o3, ad_ab) == "o3")
+check("Out-of-order 1st later", rb:decrypt(o1, ad_ab) == "o1")
+check("Out-of-order 2nd later", rb:decrypt(o2, ad_ab) == "o2")
+
+-- 10. Replay protection: skipped-key message decrypts once, then is rejected
+local rep1_ok, rep1 = pcall(rb.decrypt, rb, o1, ad_ab)
+local rep2_ok, rep2 = pcall(rb.decrypt, rb, o1, ad_ab)
+check("Replay rejected on second attempt", rep2 == nil or not rep2_ok,
+    "first=" .. tostring(rep1) .. " second=" .. tostring(rep2))
+
+-- 11. Tamper rejection (GCM authentication)
+local t = ra:encrypt("tamper me", ad_ab)
+t.ct = t.ct:sub(1, -4) .. "000"
+local t_ok, t_res = pcall(rb.decrypt, rb, t, ad_ab)
+check("Tampered ciphertext rejected", (not t_ok) or t_res == nil)
+
+-- 12. Long conversation after tampering (session must stay aligned)
+local bulk_ok = true
+for i = 1, 30 do
+    local msg = ra:encrypt("bulk " .. i, ad_ab)
+    if rb:decrypt(msg, ad_ab) ~= "bulk " .. i then bulk_ok = false end
+end
+check("30-message bulk after tamper attempt", bulk_ok)
+
+-- 13. Client module integration (no network): bundle shape + session objects
+local client_mod = require("src.client")
+local alice_client = client_mod.new("Alice", "127.0.0.1", 8888)
+local upload = alice_client.crypto:get_upload_bundle()
+check("Client prekey bundle shape", upload.ik and upload.spk and upload.spk_sig
+    and upload.ed_id and #upload.opks == 5)
+check("Client SPK signature valid",
+    crypto.ed25519_verify(upload.ed_id, crypto.from_hex(upload.spk), upload.spk_sig))
+
+print(string.format("\n%d passed, %d failed", passed, failed))
+if failed > 0 then os.exit(1) end
+print("All Signal Protocol tests passed successfully!")
