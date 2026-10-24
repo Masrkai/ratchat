@@ -23,7 +23,7 @@ There is no linter, formatter, typechecker, or CI. `luajit src/test.lua` is the 
 - `src/server.lua`: blind relay + X3DH prekey directory. Never decrypts; stores public prekey bundles (one OPK consumed per fetch) and routes ciphertext. Wire protocol: newline-terminated JSON frames over TCP (`register | prekey_request | message | global | bye` → `registered | prekey_bundle | message | system | roster | error`).
 - `src/crypto.lua`: all crypto via OpenSSL EVP through LuaJIT FFI (X25519, Ed25519, HKDF-SHA256, HMAC-SHA256, AES-256-GCM). Key material crosses JSON as lowercase hex; raw bytes internally.
 - `src/double_ratchet.lua`: Double Ratchet state machine; per-recipient sessions live in `client.sessions` (in-memory only). Keys are regenerated every run — no persistence.
-- `src/plugin.lua`: event hooks + display filters. Plugins are auto-discovered from `plugins/*.lua` by each entrypoint via `PluginManager:load_dir("plugins", scope)` and must declare an explicit `scope = "server"` or `scope = "client"`; unscoped or mismatched plugins are skipped. Sample plugins: `plugins/logger.lua` (server), `plugins/colorize.lua` (client). Loading is failure-tolerant (safe if the directory is absent). Plugin API documented in `Docs/plugins.md`.
+- `src/plugin.lua`: event hooks + display filters. Plugins are auto-discovered from `plugins/*.lua` by each entrypoint via `PluginManager:load_dir("plugins", scope)` and must declare an explicit `scope = "server"` or `scope = "client"`; unscoped or mismatched plugins are skipped. Sample plugins: `plugins/logger.lua` (server), `plugins/colorize.lua` (client). Loading is failure-tolerant (safe if the directory is absent). Plugin API documented in `docs/plugins.md`.
 
 ## Testing notes
 
