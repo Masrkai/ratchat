@@ -1,9 +1,10 @@
 -- plugins/logger.lua - Sample plugin: logs core lifecycle events.
--- Registered automatically by src/main.lua (safe to remove).
+-- Server-scoped: loaded only by src/server_main.lua via load_dir().
 
 return {
     name = "EventLogger",
     version = "1.0",
+    scope = "server",
 
     on_load = function(manager)
         manager:on("server_started", function(ip, port)

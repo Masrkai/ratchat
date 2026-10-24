@@ -8,6 +8,7 @@
 --     (hashed username -> curated 256-color palette)
 --
 -- Colors are display-only: they never touch the wire or the crypto layer.
+-- Client-scoped: loaded only by src/client_main.lua via load_dir().
 -- Disabled automatically when stdout is not a TTY or NO_COLOR is set;
 -- force-enable with RATCHAT_COLOR=force (e.g. for piping into less -R).
 
@@ -19,6 +20,7 @@ ffi.cdef[[ int isatty(int fd); ]]
 local Colorize = {
     name = "Colorize",
     version = "1.0",
+    scope = "client",
     enabled = false,
 }
 
