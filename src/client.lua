@@ -75,6 +75,8 @@ function ChatClient.new(username, host, port)
     self.tty = stdout_is_tty()
     self.term_row = 0       -- cursor row, tracked relative to the input row
     self.input_row = nil    -- row of the last submitted input line
+    self.fresh_line = true  -- cursor sits at col 0 of an empty row
+    self.prompt_row = nil   -- row the current prompt was drawn on
     self.running = true
     return self
 end
@@ -227,18 +229,36 @@ end
 function ChatClient:draw_prompt()
     io.write("[" .. self.username .. "]> ")
     io.flush()
+    self.fresh_line = false
+    self.prompt_row = self.term_row
 end
 
+-- Print one display line without leaving blank rows in the transcript:
+--   * cursor on a fresh row (just submitted input): the message takes that
+--     row, the prompt moves to the next one
+--   * cursor on the drawn prompt row: the prompt is swapped for the message
+--     and redrawn below (so a burst of incoming messages stacks gap-free)
+--   * non-TTY output: plain print(), no cursor games
 function ChatClient:print_line(text, is_async)
     -- Display-side plugin hook: lets plugins transform the text (e.g. add
     -- ANSI colors) before it is printed. Wire protocol stays untouched.
     text = plugin_manager:filter("display", text, is_async)
-    if is_async then
-        io.write("\n" .. text .. "\n")
-        self.term_row = self.term_row + 2
+    if is_async and self.tty then
+        if self.fresh_line then
+            io.write(text .. "\n")
+        else
+            io.write("\r\27[2K" .. text .. "\n")
+        end
+        self.term_row = self.term_row + 1
+        self.fresh_line = false
+    elseif is_async then
+        print(text)
+        self.term_row = self.term_row + 1
+        self.fresh_line = true
     else
         print(text)
         self.term_row = self.term_row + 1
+        self.fresh_line = true
     end
     self:draw_prompt()
 end
@@ -556,9 +576,11 @@ end
 function ChatClient:process_input(line)
     line = line:match("^%s*(.-)%s*$")
     -- The tty echoed the submitted line one row above the cursor; remember
-    -- that row so delivery ticks can rewrite it in place.
+    -- that row so delivery ticks can rewrite it in place. The cursor is now
+    -- at column 0 of a fresh empty row.
     self.input_row = self.term_row
     self.term_row = self.term_row + 1
+    self.fresh_line = true
     if line == "" then return end
 
     if line == "exit" or line == "/quit" then
