@@ -56,7 +56,7 @@ Anyone can run their own server instance; clients simply point at whichever serv
 ## Messaging & Key Exchange
 
 - Upon connection, your client automatically generates your **Identity Key (IK)**, **Signed Prekey (SPK)**, **One-Time Prekeys (OPK)** and an **Ed25519 signing key**, then uploads the public prekey bundle to the server.
-- Everyone online receives a `[Global] @you has joined the chat.` notice.
+- Everyone online receives a `* @you has joined the chat.` notice.
 
 ### Chat commands
 

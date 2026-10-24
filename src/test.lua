@@ -183,13 +183,19 @@ check("Colorize plain text unchanged when enabled",
     colorize.colorize("hello", true) == "hello")
 check("Colorize error line is red",
     colorize.colorize("[Error] boom", true) == "\27[31m[Error] boom\27[0m")
+check("Colorize system notice is yellow",
+    colorize.colorize("* @bob has joined the chat.", true) ==
+    "\27[33m* @bob has joined the chat.\27[0m")
+check("Colorize online roster is cyan",
+    colorize.colorize("online: @alice @bob", true) ==
+    "\27[36monline: @alice @bob\27[0m")
 check("Colorize own message is green",
-    colorize.colorize("[You → @bob] hi", true) == "\27[32m[You → @bob] hi\27[0m")
-local dm_a = colorize.colorize("[@alice] hi", true)
-local dm_b = colorize.colorize("[@bob] hi", true)
+    colorize.colorize("→ @bob: hi", true) == "\27[32m→ @bob: hi\27[0m")
+local dm_a = colorize.colorize("alice: hi", true)
+local dm_b = colorize.colorize("bob: hi", true)
 check("Colorize DM uses 256-color wrap",
-    dm_a:match("^\27%[38;5;%d+m%[@alice%] hi\27%[0m$") ~= nil, dm_a)
-check("Colorize DM color deterministic", dm_a == colorize.colorize("[@alice] hi", true))
+    dm_a:match("^\27%[38;5;%d+malice: hi\27%[0m$") ~= nil, dm_a)
+check("Colorize DM color deterministic", dm_a == colorize.colorize("alice: hi", true))
 check("Colorize distinct senders get distinct colors", dm_a ~= dm_b,
     "alice=" .. dm_a .. " bob=" .. dm_b)
 

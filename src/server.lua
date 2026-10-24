@@ -20,11 +20,12 @@ local function valid_username(s)
     return type(s) == "string" and #s >= 1 and #s <= 16 and s:match("^[%w_]+$") ~= nil
 end
 
-function ChatServer.new(host, port, log_connections)
+function ChatServer.new(host, port, log_connections, logfile)
     local self = setmetatable({}, ChatServer)
     self.host = host or "127.0.0.1"
     self.port = port or 8888
     self.log_connections = log_connections and true or false
+    self.logfile = logfile -- optional io handle; every log line is teed into it
     self.prekey_bundles = {} -- username -> { ik, spk, spk_sig, ed_id, opks = { {id, pub, used} } }
     self.clients = {}        -- sock -> { name, buf, ip, port }
     self.by_name = {}        -- username -> sock
@@ -32,10 +33,26 @@ function ChatServer.new(host, port, log_connections)
     return self
 end
 
--- Conditional logging (connection/registration/disconnection activity)
+-- Unconditional logging: stdout + timestamped line in the logfile (when open).
+-- Used for lifecycle events (startup, shutdown, fatal errors).
+function ChatServer:logline(fmt, ...)
+    local line = string.format("[Server] " .. fmt, ...)
+    print(line)
+    if self.logfile then
+        self.logfile:write(os.date("%Y-%m-%d %H:%M:%S "), line, "\n")
+    end
+end
+
+-- Conditional logging (connection/registration/disconnection activity).
+-- Always captured in the logfile when one is open; shown on stdout only
+-- when --logs was passed.
 function ChatServer:log(fmt, ...)
+    local line = string.format("[Server] " .. fmt, ...)
+    if self.logfile then
+        self.logfile:write(os.date("%Y-%m-%d %H:%M:%S "), line, "\n")
+    end
     if self.log_connections then
-        print(string.format("[Server] " .. fmt, ...))
+        print(line)
     end
 end
 
@@ -88,19 +105,19 @@ function ChatServer:start()
     pcall(function() server:setoption("reuseaddr", true) end)
     local ok, err = server:bind(self.host, self.port)
     if not ok then
-        print(string.format("[Server] Failed to bind %s:%d (%s)", self.host, self.port, tostring(err)))
-        print("[Server] Is another server already running on this port?")
+        self:logline("Failed to bind %s:%d (%s)", self.host, self.port, tostring(err))
+        self:logline("Is another server already running on this port?")
         return false
     end
     local lok, lerr = server:listen()
     if not lok then
-        print(string.format("[Server] Failed to listen on %s:%d (%s)", self.host, self.port, tostring(lerr)))
+        self:logline("Failed to listen on %s:%d (%s)", self.host, self.port, tostring(lerr))
         pcall(function() server:close() end)
         return false
     end
     server:settimeout(0.5)
     local ip, port = server:getsockname()
-    print(string.format("[Server] Signal-Protocol E2EE Server started on %s:%d", ip, port))
+    self:logline("Signal-Protocol E2EE Server started on %s:%d", ip, port)
     plugin_manager:emit("server_started", ip, port)
     self.running = true
 
@@ -121,16 +138,16 @@ function ChatServer:start()
                     end
                 end
             elseif sel_err ~= "timeout" then
-                self:log("[Server] select error: %s", tostring(sel_err))
+                self:log("select error: %s", tostring(sel_err))
             end
         end
     end)
 
     if not ok then
         if tostring(loop_err):find("interrupted", 1, true) then
-            print("\n[Server] Interrupt received, shutting down.")
+            self:logline("Interrupt received, shutting down.")
         else
-            print("[Server] Fatal error: " .. tostring(loop_err))
+            self:logline("Fatal error: " .. tostring(loop_err))
         end
     end
 
@@ -142,7 +159,7 @@ function ChatServer:start()
     self.clients = {}
     self.by_name = {}
     pcall(function() server:close() end)
-    print("[Server] Shut down.")
+    self:logline("Shut down.")
     return true
 end
 

@@ -2,8 +2,6 @@
 -- loop). Loads client-scoped plugins from plugins/ before connecting.
 io.stdout:setvbuf("line") -- responsive output even when redirected/piped
 
-local VERSION = "0.1.0"
-
 local client_mod = require("src.client")
 local plugin_manager = require("src.plugin")
 local cli = require("src.cli")
@@ -27,9 +25,6 @@ if opts.help then
     usage()
     return
 end
-
-print("=== ratchat " .. VERSION .. " — End-to-End Encrypted Chat (LuaJIT) ===")
-print("Mode: client")
 
 local host = opts.host or "127.0.0.1"
 local port = opts.port or 8888

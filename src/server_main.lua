@@ -9,12 +9,13 @@ local plugin_manager = require("src.plugin")
 local cli = require("src.cli")
 
 -- CLI usage:
---   luajit src/server_main.lua [--host 0.0.0.0] [--port 9000] [--logs]
+--   luajit src/server_main.lua [--host 0.0.0.0] [--port 9000] [--logs] [--logfile log.txt]
 local function usage()
     print("Usage: luajit src/server_main.lua [options]")
     print("  --host HOST      bind address (default 127.0.0.1; use 0.0.0.0 to accept remote clients)")
     print("  --port PORT      TCP port (default 8888)")
-    print("  --logs           enable connection logs")
+    print("  --logs           enable connection logs on stdout")
+    print("  --logfile FILE   append all server logs to FILE (e.g. log.txt)")
     print("  -h, --help       show this help")
 end
 
@@ -39,8 +40,21 @@ plugin_manager:load_dir("plugins", "server")
 
 local log_connections = opts.logs and true or false
 
-local s = server_mod.new(host, port, log_connections)
+-- Optional logfile: opened in append mode and handed to the server, which
+-- tees every log line into it (timestamped) in addition to stdout.
+local logfile = nil
+if opts.logfile then
+    logfile = io.open(opts.logfile, "a")
+    if not logfile then
+        print("[Error] Cannot open logfile '" .. opts.logfile .. "' for appending.")
+        return
+    end
+    logfile:setvbuf("line")
+end
+
+local s = server_mod.new(host, port, log_connections, logfile)
 local ok, run_err = pcall(function() s:start() end)
+if logfile then logfile:close() end
 if not ok then
     if tostring(run_err):find("interrupted", 1, true) then
         print("\n[Server] Shut down.")

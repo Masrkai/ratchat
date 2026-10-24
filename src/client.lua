@@ -55,7 +55,7 @@ function ChatClient:send_raw(tbl)
         self.sock:send(json.encode(tbl) .. "\n")
     end)
     if not ok then
-        print("[Client] Connection lost while sending (" .. tostring(err) .. ").")
+        print("* Connection lost while sending (" .. tostring(err) .. ").")
         self.running = false
         return false
     end
@@ -175,7 +175,7 @@ function ChatClient:connect()
     end
 
     sock:settimeout(0) -- non-blocking; the chat loop polls
-    print(string.format("[Client] Connected to server as '%s' (Signal Protocol E2EE)", self.username))
+    print(string.format("* Connected as '%s' (E2EE)", self.username))
     plugin_manager:emit("client_joined", self.username)
     return true
 end
@@ -237,7 +237,6 @@ function ChatClient:establish_initiator(recipient, bundle)
         ek = ek_pub,
         opk_id = bundle.opk and bundle.opk.id or nil
     }
-    self:print_line("[Client] Established E2EE session with @" .. recipient .. " (X3DH + Double Ratchet).", true)
     return true
 end
 
@@ -294,7 +293,7 @@ function ChatClient:send_message(recipient, message)
     end
 
     if self:send_raw({ type = "message", recipient = recipient, payload = payload }) then
-        self:print_line("[You → @" .. recipient .. "] " .. message)
+        self:print_line("→ @" .. recipient .. ": " .. message)
     end
 end
 
@@ -304,7 +303,7 @@ function ChatClient:send_global(text)
         if m ~= self.username then members[#members + 1] = m end
     end
     if #members == 0 then
-        self:print_line("[Client] Nobody else is online right now.")
+        self:print_line("* Nobody else is online right now.")
         return
     end
 
@@ -334,9 +333,9 @@ function ChatClient:send_global(text)
         return
     end
     if self:send_raw({ type = "global", items = items }) then
-        self:print_line("[You → @all] " .. text)
+        self:print_line("→ @all: " .. text)
         if #failed > 0 then
-            self:print_line("[Client] Not delivered to: @" .. table.concat(failed, ", @"))
+            self:print_line("* Not delivered to: @" .. table.concat(failed, ", @"))
         end
     end
 end
@@ -349,7 +348,7 @@ function ChatClient:handle_packet(pkt)
     if pkt.type == "message" then
         self:handle_incoming(pkt)
     elseif pkt.type == "system" then
-        self:print_line("[Global] " .. tostring(pkt.text), true)
+        self:print_line("* " .. tostring(pkt.text), true)
     elseif pkt.type == "roster" then
         self.roster = pkt.members or {}
     elseif pkt.type == "error" then
@@ -397,7 +396,6 @@ function ChatClient:handle_incoming(pkt)
         ratchet = r
         self.sessions[sender] = ratchet
         self.peer_iks[sender] = tostring(x.ik)
-        self:print_line("[Client] Established E2EE session with @" .. sender .. " (inbound X3DH).", true)
     end
 
     local ad = (self.peer_iks[sender] or "") .. self.crypto.identity_key.public
@@ -425,7 +423,7 @@ function ChatClient:handle_incoming(pkt)
     end
 
     if ok2 and pt then
-        self:print_line("[@" .. sender .. "] " .. pt, true)
+        self:print_line(sender .. ": " .. pt, true)
     else
         self:print_line("[Error] Decryption failed for a message from @" .. sender ..
             (ok2 and " (authentication)" or ": " .. tostring(pt)), true)
@@ -468,9 +466,9 @@ function ChatClient:process_input(line)
         return
     elseif line == "/who" then
         if #self.roster == 0 then
-            self:print_line("[Online] (nobody)")
+            self:print_line("online: (nobody)")
         else
-            self:print_line("[Online] @" .. table.concat(self.roster, " @"))
+            self:print_line("online: @" .. table.concat(self.roster, " @"))
         end
         return
     elseif line == "/fingerprint" or line:match("^/fingerprint%s+%S+") then
@@ -487,11 +485,6 @@ function ChatClient:process_input(line)
 end
 
 function ChatClient:start_chat_loop()
-    print("\n--- Chat Active (global room) ---")
-    print("Plain text          -> global room (E2EE per member)")
-    print("@username message   -> direct message")
-    print("/who /fingerprint /help exit -> roster, fingerprints, help, quit\n")
-
     local fds = ffi.new("pollfd_t[2]")
     fds[0].fd = 0 -- stdin
     fds[0].events = POLLIN
@@ -504,7 +497,7 @@ function ChatClient:start_chat_loop()
         -- Dispatch frames stranded in rbuf (e.g. read during handshake)
         local pok, perr = self:process_rbuf_lines()
         if not pok then
-            self:print_line("[Client] Disconnected from server (" .. tostring(perr) .. ").", true)
+            self:print_line("* Disconnected from server (" .. tostring(perr) .. ").", true)
             self.running = false
             break
         end
@@ -519,7 +512,7 @@ function ChatClient:start_chat_loop()
             if bit.band(fds[1].revents, POLLIN) ~= 0 or bit.band(fds[1].revents, POLLHUP) ~= 0 then
                 local ok, err = self:try_read_available()
                 if not ok then
-                    self:print_line("[Client] Disconnected from server (" .. tostring(err) .. ").", true)
+                    self:print_line("* Disconnected from server (" .. tostring(err) .. ").", true)
                     self.running = false
                     break
                 end
