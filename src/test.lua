@@ -193,6 +193,35 @@ check("Colorize DM color deterministic", dm_a == colorize.colorize("[@alice] hi"
 check("Colorize distinct senders get distinct colors", dm_a ~= dm_b,
     "alice=" .. dm_a .. " bob=" .. dm_b)
 
+-- 16. Plugin load_dir scope filtering
+local function count_named(mgr, name)
+    local n = 0
+    for _, p in ipairs(mgr.plugins) do
+        if p.name == name then n = n + 1 end
+    end
+    return n
+end
+
+plugin_manager:load_dir("plugins", "server")
+check("load_dir registers server-scoped plugin", count_named(plugin_manager, "EventLogger") == 1)
+check("load_dir skips other-scope plugins", count_named(plugin_manager, "Colorize") == 0)
+
+plugin_manager:load_dir("plugins", "client")
+check("load_dir registers client-scoped plugin", count_named(plugin_manager, "Colorize") == 1)
+
+local tmp_path = "plugins/zzz_unscoped_test_plugin.lua"
+local f = io.open(tmp_path, "w")
+if f then
+    f:write("return { name = 'UnscopedTest' }\n")
+    f:close()
+    plugin_manager:load_dir("plugins", "server")
+    check("load_dir skips unscoped plugins", count_named(plugin_manager, "UnscopedTest") == 0)
+    os.remove(tmp_path)
+end
+
+plugin_manager:load_dir("plugins_nonexistent_dir", "server")
+check("load_dir tolerates missing directory", true)
+
 print(string.format("\n%d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end
 print("All Signal Protocol tests passed successfully!")
